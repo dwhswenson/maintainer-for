@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import io
 import json
 import sys
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
@@ -150,3 +152,59 @@ class HandlerTests(TestCase):
                 }
             },
         )
+
+    @patch("handler.PyPIClient")
+    @patch("handler.GitHubClient")
+    def test_cli_prints_both_requested_sections(self, github_client_cls, pypi_client_cls) -> None:
+        github_client_cls.return_value.get_conda_forge_projects.return_value = ["alpha-feedstock", "beta-feedstock"]
+        pypi_client_cls.return_value.get_projects.return_value = ["package-a", "package-b"]
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = handler.main(["--github", "alice", "--pypi", "alice-pypi"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            stdout.getvalue(),
+            "GitHub (alice)\n"
+            "- alpha-feedstock\n"
+            "- beta-feedstock\n\n"
+            "PyPI (alice-pypi)\n"
+            "- package-a\n"
+            "- package-b\n",
+        )
+
+    @patch("handler.PyPIClient")
+    @patch("handler.GitHubClient")
+    def test_cli_accepts_single_source(self, github_client_cls, pypi_client_cls) -> None:
+        pypi_client_cls.return_value.get_projects.return_value = ["package-a"]
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = handler.main(["--pypi", "alice-pypi"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout.getvalue(), "PyPI (alice-pypi)\n- package-a\n")
+        github_client_cls.assert_not_called()
+
+    def test_cli_requires_at_least_one_username(self) -> None:
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            with self.assertRaises(SystemExit) as exc:
+                handler.main([])
+
+        self.assertEqual(exc.exception.code, 2)
+        self.assertIn("at least one of --github or --pypi is required", stderr.getvalue())
+
+    @patch("handler.PyPIClient")
+    @patch("handler.GitHubClient")
+    def test_cli_reports_user_not_found(self, github_client_cls, pypi_client_cls) -> None:
+        github_client_cls.return_value.get_conda_forge_projects.side_effect = UserNotFoundError("github", "missing")
+        stderr = io.StringIO()
+
+        with redirect_stderr(stderr):
+            exit_code = handler.main(["--github", "missing"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(stderr.getvalue(), "github user not found: missing\n")

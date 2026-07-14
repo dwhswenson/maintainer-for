@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from concurrent.futures import ThreadPoolExecutor
+import subprocess
 from typing import Any, Callable
 
 import requests
@@ -13,6 +13,25 @@ Requestor = Callable[..., requests.Response]
 
 
 class GitHubClient:
+    TEAMS_QUERY = """
+    query($org: String!, $username: String!, $after: String) {
+      user(login: $username) {
+        login
+      }
+      organization(login: $org) {
+        teams(first: 100, after: $after, userLogins: [$username]) {
+          nodes {
+            slug
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
+          }
+        }
+      }
+    }
+    """
+
     def __init__(
         self,
         token: str | None = None,
@@ -22,7 +41,7 @@ class GitHubClient:
         base_url: str = "https://api.github.com",
         requestor: Requestor | None = None,
     ) -> None:
-        self.token = token if token is not None else os.getenv("GITHUB_TOKEN")
+        self.token = self._resolve_token(token)
         self.timeout = timeout
         self.max_workers = max_workers
         self.org = org
@@ -30,60 +49,65 @@ class GitHubClient:
         self.requestor = requestor or requests.request
 
     def get_conda_forge_projects(self, username: str) -> list[str]:
-        self._verify_user_exists(username)
-        team_slugs = self._list_team_slugs()
-        if not team_slugs:
-            return []
-
-        with ThreadPoolExecutor(max_workers=min(self.max_workers, len(team_slugs))) as executor:
-            memberships = executor.map(lambda slug: self._is_team_member(slug, username), team_slugs)
-            projects = [slug for slug, is_member in zip(team_slugs, memberships, strict=True) if is_member]
-
-        return sorted(projects)
-
-    def _verify_user_exists(self, username: str) -> None:
-        response = self._request("GET", f"/users/{username}")
-        if response.status_code == 404:
-            raise UserNotFoundError("github", username)
-        self._ensure_success(response, "github", f"failed to verify GitHub user {username}")
-
-    def _list_team_slugs(self) -> list[str]:
         team_slugs: list[str] = []
-        page = 1
+        after: str | None = None
 
         while True:
             response = self._request(
-                "GET",
-                f"/orgs/{self.org}/teams",
-                params={"per_page": 100, "page": page},
+                "POST",
+                "/graphql",
+                json={
+                    "query": self.TEAMS_QUERY,
+                    "variables": {
+                        "org": self.org,
+                        "username": username,
+                        "after": after,
+                    },
+                },
             )
-            self._ensure_success(response, "github", "failed to list conda-forge teams")
+            self._ensure_success(response, "github", "failed to query conda-forge teams")
 
-            teams = response.json()
-            if not isinstance(teams, list):
-                raise UpstreamServiceError("github", "unexpected response while listing conda-forge teams")
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise UpstreamServiceError("github", "unexpected response while querying conda-forge teams")
 
-            if not teams:
+            errors = payload.get("errors")
+            if errors:
+                raise UpstreamServiceError("github", self._format_graphql_errors(errors))
+
+            data = payload.get("data")
+            if not isinstance(data, dict):
+                raise UpstreamServiceError("github", "missing data while querying conda-forge teams")
+
+            if data.get("user") is None:
+                raise UserNotFoundError("github", username)
+
+            organization = data.get("organization")
+            if not isinstance(organization, dict):
+                raise UpstreamServiceError("github", f"organization not found: {self.org}")
+
+            teams = organization.get("teams")
+            if not isinstance(teams, dict):
+                raise UpstreamServiceError("github", "missing teams connection while querying conda-forge teams")
+
+            nodes = teams.get("nodes")
+            if not isinstance(nodes, list):
+                raise UpstreamServiceError("github", "unexpected teams payload while querying conda-forge teams")
+
+            team_slugs.extend(node["slug"] for node in nodes if isinstance(node, dict) and "slug" in node)
+
+            page_info = teams.get("pageInfo")
+            if not isinstance(page_info, dict):
+                raise UpstreamServiceError("github", "missing page info while querying conda-forge teams")
+
+            if not page_info.get("hasNextPage"):
                 break
 
-            team_slugs.extend(team["slug"] for team in teams if isinstance(team, dict) and "slug" in team)
-            page += 1
+            after = page_info.get("endCursor")
+            if not isinstance(after, str) or not after:
+                raise UpstreamServiceError("github", "missing end cursor while querying conda-forge teams")
 
-        return team_slugs
-
-    def _is_team_member(self, team_slug: str, username: str) -> bool:
-        response = self._request(
-            "GET",
-            f"/orgs/{self.org}/teams/{team_slug}/memberships/{username}",
-        )
-        if response.status_code == 404:
-            return False
-        self._ensure_success(
-            response,
-            "github",
-            f"failed to check membership for {username} in team {team_slug}",
-        )
-        return True
+        return sorted(team_slugs)
 
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         url = f"{self.base_url}{path}"
@@ -105,3 +129,40 @@ class GitHubClient:
         if 200 <= response.status_code < 300:
             return
         raise UpstreamServiceError(source, f"{message} (status {response.status_code})")
+
+    @staticmethod
+    def _format_graphql_errors(errors: Any) -> str:
+        if not isinstance(errors, list):
+            return "unexpected GraphQL error response"
+
+        messages = [error.get("message") for error in errors if isinstance(error, dict) and error.get("message")]
+        if not messages:
+            return "unexpected GraphQL error response"
+
+        return "; ".join(messages)
+
+    @staticmethod
+    def _resolve_token(token: str | None) -> str | None:
+        if token is not None:
+            return token
+
+        env_token = os.getenv("GITHUB_TOKEN") or os.getenv("GH_TOKEN")
+        if env_token:
+            return env_token
+
+        return GitHubClient._get_gh_cli_token()
+
+    @staticmethod
+    def _get_gh_cli_token() -> str | None:
+        try:
+            completed = subprocess.run(
+                ["gh", "auth", "token"],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            return None
+
+        token = completed.stdout.strip()
+        return token or None
