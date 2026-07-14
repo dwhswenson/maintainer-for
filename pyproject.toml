@@ -1,0 +1,40 @@
+[project]
+name = "maintainer-for"
+version = "0.1.0"
+authors = [{ name = "David W.H. Swenson", email = "dwhs@hyperblazer.net" }]
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+dependencies = [
+    "requests",
+    "beautifulsoup4",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+maintainer-for = "maintainer_for.handler:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-64"]
+
+[tool.pixi.dependencies]
+python = ">=3.13,<3.15"
+pytest = "*"
+
+[tool.pixi.pypi-dependencies]
+maintainer_for = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+test = "python -m pytest"

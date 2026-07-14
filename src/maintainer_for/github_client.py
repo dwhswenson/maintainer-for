@@ -6,13 +6,14 @@ from typing import Any, Callable
 
 import requests
 
-from errors import UpstreamServiceError, UserNotFoundError
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
 
 
 Requestor = Callable[..., requests.Response]
 
 
 class GitHubClient:
+    EXCLUDED_TEAM_SLUGS = {"all-members"}
     TEAMS_QUERY = """
     query($org: String!, $username: String!, $after: String) {
       user(login: $username) {
@@ -94,7 +95,13 @@ class GitHubClient:
             if not isinstance(nodes, list):
                 raise UpstreamServiceError("github", "unexpected teams payload while querying conda-forge teams")
 
-            team_slugs.extend(node["slug"] for node in nodes if isinstance(node, dict) and "slug" in node)
+            team_slugs.extend(
+                node["slug"]
+                for node in nodes
+                if isinstance(node, dict)
+                and "slug" in node
+                and node["slug"] not in self.EXCLUDED_TEAM_SLUGS
+            )
 
             page_info = teams.get("pageInfo")
             if not isinstance(page_info, dict):

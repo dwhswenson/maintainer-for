@@ -5,9 +5,9 @@ import json
 import sys
 from typing import Any
 
-from errors import UpstreamServiceError, UserNotFoundError
-from github_client import GitHubClient
-from pypi_client import PyPIClient
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
+from maintainer_for.github_client import GitHubClient
+from maintainer_for.pypi_client import PyPIClient
 
 
 def lambda_handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
@@ -134,7 +134,7 @@ def _format_cli_output(payload: dict[str, dict[str, Any]]) -> str:
     sections: list[str] = []
 
     if "condaforge" in payload:
-        sections.append(_format_section("GitHub", payload["condaforge"]))
+        sections.append(_format_section("conda-forge", payload["condaforge"]))
     if "pypi" in payload:
         sections.append(_format_section("PyPI", payload["pypi"]))
 

@@ -2,21 +2,17 @@ from __future__ import annotations
 
 import io
 import json
-import sys
 from contextlib import redirect_stderr, redirect_stdout
-from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lambda" / "src"))
-
-import handler
-from errors import UpstreamServiceError, UserNotFoundError
+from maintainer_for import handler
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
 
 
 class HandlerTests(TestCase):
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_400_when_query_params_are_missing(self, github_client_cls, pypi_client_cls) -> None:
         response = handler.lambda_handler({}, None)
 
@@ -28,8 +24,8 @@ class HandlerTests(TestCase):
         github_client_cls.assert_not_called()
         pypi_client_cls.assert_not_called()
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_400_when_query_param_is_blank(self, github_client_cls, pypi_client_cls) -> None:
         response = handler.lambda_handler(
             {"queryStringParameters": {"github_username": "alice", "pypi_username": "   "}},
@@ -44,8 +40,8 @@ class HandlerTests(TestCase):
         github_client_cls.assert_not_called()
         pypi_client_cls.assert_not_called()
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_combined_success_payload(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.return_value = ["alpha-feedstock", "beta-feedstock"]
         pypi_client_cls.return_value.get_projects.return_value = ["package-a", "package-b"]
@@ -64,8 +60,8 @@ class HandlerTests(TestCase):
             },
         )
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_empty_condaforge_projects_for_valid_user_without_memberships(
         self,
         github_client_cls,
@@ -83,8 +79,8 @@ class HandlerTests(TestCase):
         payload = json.loads(response["body"])
         self.assertEqual(payload["condaforge"]["projects"], [])
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_404_for_missing_github_user(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.side_effect = UserNotFoundError("github", "missing-user")
 
@@ -106,8 +102,8 @@ class HandlerTests(TestCase):
         )
         pypi_client_cls.return_value.get_projects.assert_not_called()
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_404_for_missing_pypi_user(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.return_value = ["alpha-feedstock"]
         pypi_client_cls.return_value.get_projects.side_effect = UserNotFoundError("pypi", "missing-pypi")
@@ -129,8 +125,8 @@ class HandlerTests(TestCase):
             },
         )
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_returns_502_for_upstream_failure(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.side_effect = UpstreamServiceError(
             "github",
@@ -153,8 +149,8 @@ class HandlerTests(TestCase):
             },
         )
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_cli_prints_both_requested_sections(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.return_value = ["alpha-feedstock", "beta-feedstock"]
         pypi_client_cls.return_value.get_projects.return_value = ["package-a", "package-b"]
@@ -166,7 +162,7 @@ class HandlerTests(TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             stdout.getvalue(),
-            "GitHub (alice)\n"
+            "conda-forge (alice)\n"
             "- alpha-feedstock\n"
             "- beta-feedstock\n\n"
             "PyPI (alice-pypi)\n"
@@ -174,8 +170,8 @@ class HandlerTests(TestCase):
             "- package-b\n",
         )
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_cli_accepts_single_source(self, github_client_cls, pypi_client_cls) -> None:
         pypi_client_cls.return_value.get_projects.return_value = ["package-a"]
         stdout = io.StringIO()
@@ -197,8 +193,8 @@ class HandlerTests(TestCase):
         self.assertEqual(exc.exception.code, 2)
         self.assertIn("at least one of --github or --pypi is required", stderr.getvalue())
 
-    @patch("handler.PyPIClient")
-    @patch("handler.GitHubClient")
+    @patch("maintainer_for.handler.PyPIClient")
+    @patch("maintainer_for.handler.GitHubClient")
     def test_cli_reports_user_not_found(self, github_client_cls, pypi_client_cls) -> None:
         github_client_cls.return_value.get_conda_forge_projects.side_effect = UserNotFoundError("github", "missing")
         stderr = io.StringIO()

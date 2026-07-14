@@ -1,0 +1,11 @@
+FROM public.ecr.aws/lambda/python:3.13
+
+ARG MAINTAINER_FOR_VERSION=""
+
+RUN if [ -n "${MAINTAINER_FOR_VERSION}" ]; then \
+        python -m pip install --no-cache-dir "maintainer-for==${MAINTAINER_FOR_VERSION}"; \
+    else \
+        python -m pip install --no-cache-dir maintainer-for; \
+    fi
+
+CMD ["maintainer_for.handler.lambda_handler"]

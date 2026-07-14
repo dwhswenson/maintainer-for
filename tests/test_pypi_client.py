@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest import TestCase
 
 import requests
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lambda" / "src"))
-
-from errors import UserNotFoundError
-from pypi_client import PyPIClient
+from maintainer_for.errors import UserNotFoundError
+from maintainer_for.pypi_client import PyPIClient
 
 
 class FakeResponse:

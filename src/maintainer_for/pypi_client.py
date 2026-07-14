@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup, Tag
 
-from errors import UpstreamServiceError, UserNotFoundError
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
 
 
 Requestor = Callable[..., requests.Response]

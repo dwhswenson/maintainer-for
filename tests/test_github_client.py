@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from unittest import TestCase
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lambda" / "src"))
-
-from errors import UpstreamServiceError, UserNotFoundError
-from github_client import GitHubClient
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
+from maintainer_for.github_client import GitHubClient
 
 
 class FakeResponse:
@@ -22,8 +18,8 @@ class FakeResponse:
 
 
 class GitHubClientTests(TestCase):
-    @patch("github_client.subprocess.run")
-    @patch("github_client.os.getenv")
+    @patch("maintainer_for.github_client.subprocess.run")
+    @patch("maintainer_for.github_client.os.getenv")
     def test_prefers_explicit_token_over_env_and_gh(self, getenv, subprocess_run) -> None:
         client = GitHubClient(token="explicit-token")
 
@@ -31,8 +27,8 @@ class GitHubClientTests(TestCase):
         getenv.assert_not_called()
         subprocess_run.assert_not_called()
 
-    @patch("github_client.subprocess.run")
-    @patch("github_client.os.getenv")
+    @patch("maintainer_for.github_client.subprocess.run")
+    @patch("maintainer_for.github_client.os.getenv")
     def test_falls_back_to_gh_token_env(self, getenv, subprocess_run) -> None:
         def getenv_side_effect(name: str) -> str | None:
             return {"GITHUB_TOKEN": None, "GH_TOKEN": "gh-env-token"}.get(name)
@@ -44,8 +40,8 @@ class GitHubClientTests(TestCase):
         self.assertEqual(client.token, "gh-env-token")
         subprocess_run.assert_not_called()
 
-    @patch("github_client.subprocess.run")
-    @patch("github_client.os.getenv")
+    @patch("maintainer_for.github_client.subprocess.run")
+    @patch("maintainer_for.github_client.os.getenv")
     def test_falls_back_to_gh_cli_token(self, getenv, subprocess_run) -> None:
         getenv.return_value = None
         subprocess_run.return_value.stdout = "token-from-gh\n"
@@ -60,8 +56,8 @@ class GitHubClientTests(TestCase):
             text=True,
         )
 
-    @patch("github_client.subprocess.run")
-    @patch("github_client.os.getenv")
+    @patch("maintainer_for.github_client.subprocess.run")
+    @patch("maintainer_for.github_client.os.getenv")
     def test_uses_no_token_when_gh_cli_lookup_fails(self, getenv, subprocess_run) -> None:
         getenv.return_value = None
         subprocess_run.side_effect = FileNotFoundError()
@@ -79,7 +75,7 @@ class GitHubClientTests(TestCase):
                         "user": {"login": "alice"},
                         "organization": {
                             "teams": {
-                                "nodes": [{"slug": "beta"}, {"slug": "alpha"}],
+                                "nodes": [{"slug": "beta"}, {"slug": "all-members"}, {"slug": "alpha"}],
                                 "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
                             }
                         },
