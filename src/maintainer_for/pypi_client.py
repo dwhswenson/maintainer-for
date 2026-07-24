@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import re
+import xmlrpc.client
 from typing import Any, Callable
 from urllib.parse import urlparse
+from xml.parsers.expat import ExpatError
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -31,7 +33,33 @@ class PyPIClient:
         if response.status_code == 404:
             raise UserNotFoundError("pypi", username)
         self._ensure_success(response, "failed to fetch PyPI profile")
+        if self._is_client_challenge(response.text):
+            return self._get_projects_xmlrpc(username)
         return self.parse_projects(response.text)
+
+    def _get_projects_xmlrpc(self, username: str) -> list[str]:
+        request_body = xmlrpc.client.dumps(
+            (username,),
+            methodname="user_packages",
+            allow_none=False,
+        )
+        response = self._request(
+            "POST",
+            "/pypi",
+            headers={"Content-Type": "text/xml"},
+            data=request_body,
+        )
+        self._ensure_success(response, "failed to fetch PyPI projects")
+
+        try:
+            params, _ = xmlrpc.client.loads(response.text)
+            roles = params[0]
+            return sorted({entry[1] for entry in roles})
+        except (ExpatError, IndexError, TypeError, xmlrpc.client.Error) as exc:
+            raise UpstreamServiceError(
+                "pypi",
+                f"invalid response from PyPI user_packages: {exc}",
+            ) from exc
 
     def parse_projects(self, html: str) -> list[str]:
         soup = BeautifulSoup(html, "html.parser")
@@ -49,6 +77,23 @@ class PyPIClient:
             project_names -= self._extract_project_links(archived_section)
 
         return sorted(project_names)
+
+    @staticmethod
+    def _is_client_challenge(html: str) -> bool:
+        soup = BeautifulSoup(html, "html.parser")
+        title = soup.title.get_text(" ", strip=True).casefold() if soup.title else ""
+        return title == "client challenge" or soup.find(
+            lambda tag: (
+                isinstance(tag, Tag)
+                and tag.name in {"script", "link"}
+                and any(
+                    value.startswith("/_fs-ch-")
+                    for attribute in ("src", "href")
+                    for value in [tag.get(attribute)]
+                    if isinstance(value, str)
+                )
+            )
+        ) is not None
 
     def _find_section(self, root: Tag, heading_text: str) -> Tag | None:
         target = heading_text.casefold()
@@ -70,6 +115,7 @@ class PyPIClient:
     def _request(self, method: str, path: str, **kwargs: Any) -> requests.Response:
         url = f"{self.base_url}{path}"
         headers = {"User-Agent": "maintainer-for-lambda"}
+        headers.update(kwargs.pop("headers", {}))
         try:
             return self.requestor(method, url, headers=headers, timeout=self.timeout, **kwargs)
         except requests.RequestException as exc:

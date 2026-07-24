@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import xmlrpc.client
 from pathlib import Path
 from unittest import TestCase
 
 import requests
 
-from maintainer_for.errors import UserNotFoundError
+from maintainer_for.errors import UpstreamServiceError, UserNotFoundError
 from maintainer_for.pypi_client import PyPIClient
 
 
@@ -36,6 +37,61 @@ class PyPIClientTests(TestCase):
         projects = client.parse_projects(html)
 
         self.assertEqual(projects, ["alpha", "bravo", "charlie"])
+
+    def test_falls_back_to_xmlrpc_when_pypi_returns_client_challenge(self) -> None:
+        responses = [
+            FakeResponse(
+                200,
+                text=(
+                    "<html><head><title>Client Challenge</title>"
+                    '<script src="/_fs-ch-example/script.js"></script>'
+                    "</head></html>"
+                ),
+            ),
+            FakeResponse(
+                200,
+                text=xmlrpc.client.dumps(
+                    (
+                        [
+                            ["Owner", "charlie"],
+                            ["Maintainer", "alpha"],
+                            ["Owner", "charlie"],
+                        ],
+                    ),
+                    methodresponse=True,
+                ),
+            ),
+        ]
+        calls = []
+
+        def requestor(method, url, **kwargs):
+            calls.append((method, url, kwargs))
+            return responses.pop(0)
+
+        client = PyPIClient(requestor=requestor)
+
+        projects = client.get_projects("alice")
+
+        self.assertEqual(projects, ["alpha", "charlie"])
+        self.assertEqual(calls[0][0:2], ("GET", "https://pypi.org/user/alice/"))
+        self.assertEqual(calls[1][0:2], ("POST", "https://pypi.org/pypi"))
+        self.assertEqual(calls[1][2]["headers"]["Content-Type"], "text/xml")
+        self.assertIn("<methodName>user_packages</methodName>", calls[1][2]["data"])
+        self.assertIn("<string>alice</string>", calls[1][2]["data"])
+
+    def test_raises_upstream_error_for_invalid_xmlrpc_response(self) -> None:
+        responses = [
+            FakeResponse(200, text="<title>Client Challenge</title>"),
+            FakeResponse(200, text="not XML"),
+        ]
+
+        def requestor(method, url, **kwargs):
+            return responses.pop(0)
+
+        client = PyPIClient(requestor=requestor)
+
+        with self.assertRaises(UpstreamServiceError):
+            client.get_projects("alice")
 
     def test_raises_user_not_found_for_missing_profile(self) -> None:
         def requestor(method, url, **kwargs):
