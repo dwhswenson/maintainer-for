@@ -195,12 +195,12 @@ packages:
 - pypi: ./
   name: maintainer-for
   version: 0.1.0
-  sha256: fde2404c5ae3106cf2c99b79c3747e9b2b258ff30fd3c1037c31ff958b5d3b4f
+  sha256: 8d9b214f7e4a5b88cd3ba89363cb5ba4f915ffac7e427e72a079c169081206f6
   requires_dist:
   - requests
   - beautifulsoup4
   - pytest ; extra == 'test'
-  requires_python: '>=3.13,<3.15'
+  requires_python: '>=3.11'
 - conda: https://conda.anaconda.org/conda-forge/osx-64/ncurses-6.6-hcc0dc9a_0.conda
   sha256: f5f7e006ff4271305ab4cc08eedd855c67a571793c3d18aff73f645f088a8cae
   md5: 31b8740cf1b2588d4e61c81191004061

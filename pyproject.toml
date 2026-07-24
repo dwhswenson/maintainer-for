@@ -3,7 +3,7 @@ name = "maintainer-for"
 version = "0.1.0"
 authors = [{ name = "David W.H. Swenson", email = "dwhs@hyperblazer.net" }]
 readme = "README.md"
-requires-python = ">=3.13,<3.15"
+requires-python = ">=3.11"
 dependencies = [
     "requests",
     "beautifulsoup4",
